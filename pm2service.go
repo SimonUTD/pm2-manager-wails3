@@ -22,13 +22,15 @@ func runPM2Command(args ...string) ([]byte, error) {
 		fullArgs := append([]string{"/C", "pm2"}, args...)
 		cmd = exec.Command("cmd", fullArgs...)
 	} else {
-		// macOS & Linux 系统: 使用 "sh -c 'pm2 ...'"
-		// 为了安全，对每个参数进行引用，防止 shell 注入。
+		// macOS & Linux 系统: 使用 "sh -l -c 'pm2 ...'"
+		// -l (login) 标志会使 shell 加载用户的配置文件（如 .zshrc, .bash_profile），
+		// 这对于找到像 nvm 或 npm 全局安装的 pm2 至关重要。
 		fullCommand := "pm2"
 		for _, arg := range args {
+			// 在 Unix-like 系统上，为参数加上引号是更安全的做法。
 			fullCommand += " " + strconv.Quote(arg)
 		}
-		cmd = exec.Command("sh", "-c", fullCommand)
+		cmd = exec.Command("sh", "-l", "-c", fullCommand)
 	}
 
 	// 使用 CombinedOutput() 来执行命令并捕获其标准输出和标准错误的组合结果。
@@ -233,8 +235,8 @@ func (p *PM2Service) GetPM2Version() (*PM2VersionInfo, error) {
 		// Windows: 使用 'where' 命令
 		checkCmd = exec.Command("cmd", "/C", "where pm2")
 	} else {
-		// macOS & Linux: 使用 'command -v'
-		checkCmd = exec.Command("sh", "-c", "command -v pm2")
+		// macOS & Linux: 使用 'command -v' 在登录 shell 中运行
+		checkCmd = exec.Command("sh", "-l", "-c", "command -v pm2")
 	}
 
 	if err := checkCmd.Run(); err != nil {
