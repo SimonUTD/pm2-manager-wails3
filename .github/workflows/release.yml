@@ -77,24 +77,24 @@ jobs:
       if: matrix.os == 'windows-latest'
       run: |
         if (!(Test-Path "${{ matrix.asset_path }}")) {
-          Write-Host "❌ Build artifact not found: ${{ matrix.asset_path }}"
-          Write-Host "📁 Available files:"
+          Write-Host "Build artifact not found: ${{ matrix.asset_path }}"
+          Write-Host "Available files:"
           Get-ChildItem -Recurse -Include "*.exe","*.dmg","*.app" | Select-Object -First 10
           exit 1
         }
-        Write-Host "✅ Found artifact: ${{ matrix.asset_path }}"
+        Write-Host "Found artifact: ${{ matrix.asset_path }}"
       shell: powershell
 
     - name: Verify build artifacts (macOS)
       if: matrix.os == 'macos-latest'
       run: |
         if [ ! -f "${{ matrix.asset_path }}" ]; then
-          echo "❌ Build artifact not found: ${{ matrix.asset_path }}"
-          echo "📁 Available files:"
+          echo "Build artifact not found: ${{ matrix.asset_path }}"
+          echo "Available files:"
           find . -name "*.exe" -o -name "*.dmg" -o -name "*.app" | head -10
           exit 1
         fi
-        echo "✅ Found artifact: ${{ matrix.asset_path }}"
+        echo "Found artifact: ${{ matrix.asset_path }}"
 
     - name: Upload artifact for release job
       uses: actions/upload-artifact@v4
