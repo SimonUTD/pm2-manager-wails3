@@ -4,11 +4,36 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// runPM2Command 是一个核心辅助函数，用于通过用户的 shell 执行任何 pm2 命令。
+// 它现在是跨平台的，会自动检测操作系统并使用正确的 shell。
+func runPM2Command(args ...string) ([]byte, error) {
+	var cmd *exec.Cmd
+
+	if runtime.GOOS == "windows" {
+		// Windows 系统: 使用 "cmd /C pm2 ..."
+		// pm2 在 Windows 上通常是 pm2.cmd，'cmd /C' 会处理路径和执行。
+		fullArgs := append([]string{"/C", "pm2"}, args...)
+		cmd = exec.Command("cmd", fullArgs...)
+	} else {
+		// macOS & Linux 系统: 使用 "sh -c 'pm2 ...'"
+		// 为了安全，对每个参数进行引用，防止 shell 注入。
+		fullCommand := "pm2"
+		for _, arg := range args {
+			fullCommand += " " + strconv.Quote(arg)
+		}
+		cmd = exec.Command("sh", "-c", fullCommand)
+	}
+
+	// 使用 CombinedOutput() 来执行命令并捕获其标准输出和标准错误的组合结果。
+	return cmd.CombinedOutput()
+}
 
 // ProcessInfo represents PM2 process information
 type ProcessInfo struct {
@@ -74,15 +99,20 @@ type PM2Service struct {
 
 // ListProcesses retrieves all PM2 processes
 func (p *PM2Service) ListProcesses() ([]ProcessInfo, error) {
-	cmd := exec.Command("pm2", "jlist")
-	output, err := cmd.Output()
+	output, err := runPM2Command("jlist")
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute pm2 jlist: %v", err)
+		if strings.Contains(string(output), "PM2 is not running") {
+			return []ProcessInfo{}, nil
+		}
+		return nil, fmt.Errorf("failed to execute pm2 jlist: %v. Output: %s", err, string(output))
 	}
 
 	var processes []map[string]interface{}
 	if err := json.Unmarshal(output, &processes); err != nil {
-		return nil, fmt.Errorf("failed to parse PM2 output: %v", err)
+		if len(output) == 0 || string(output) == "[]" {
+			return []ProcessInfo{}, nil
+		}
+		return nil, fmt.Errorf("failed to parse PM2 output: %v. Output: %s", err, string(output))
 	}
 
 	var result []ProcessInfo
@@ -90,12 +120,8 @@ func (p *PM2Service) ListProcesses() ([]ProcessInfo, error) {
 		uptime := getInt64FromMap(process, "pm2_env.pm_uptime")
 		startedAt := time.Unix(uptime/1000, 0).Format("2006-01-02 15:04:05")
 		runtime := formatRuntime(time.Since(time.Unix(uptime/1000, 0)))
-
-		// Get the correct script path and command
 		scriptPath := getStringFromMap(process, "pm2_env.pm_exec_path")
 		args := getStringFromMap(process, "pm2_env.args")
-
-		// Build full command
 		fullCommand := scriptPath
 		if args != "" {
 			fullCommand += " " + args
@@ -122,74 +148,47 @@ func (p *PM2Service) ListProcesses() ([]ProcessInfo, error) {
 	return result, nil
 }
 
-// RestartProcess restarts a PM2 process
-func (p *PM2Service) RestartProcess(id interface{}) (*OperationResult, error) {
+// genericPM2Operation is a generic handler for actions like start, stop, restart
+func (p *PM2Service) genericPM2Operation(action string, id interface{}, successMsg, errorMsg string) (*OperationResult, error) {
 	idStr := fmt.Sprintf("%v", id)
-	cmd := exec.Command("pm2", "restart", idStr)
-	err := cmd.Run()
+	output, err := runPM2Command(action, idStr)
 
 	if err != nil {
 		return &OperationResult{
 			Success: false,
-			Message: fmt.Sprintf("重启进程 %s 失败", idStr),
-			Error:   err.Error(),
+			Message: fmt.Sprintf(errorMsg, idStr),
+			Error:   fmt.Sprintf("%v: %s", err, string(output)),
 		}, nil
 	}
 
 	return &OperationResult{
 		Success: true,
-		Message: fmt.Sprintf("进程 %s 重启成功", idStr),
+		Message: fmt.Sprintf(successMsg, idStr),
 	}, nil
+}
+
+// RestartProcess restarts a PM2 process
+func (p *PM2Service) RestartProcess(id interface{}) (*OperationResult, error) {
+	return p.genericPM2Operation("restart", id, "进程 %s 重启成功", "重启进程 %s 失败")
 }
 
 // StartProcess starts a PM2 process
 func (p *PM2Service) StartProcess(id interface{}) (*OperationResult, error) {
-	idStr := fmt.Sprintf("%v", id)
-	cmd := exec.Command("pm2", "start", idStr)
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: fmt.Sprintf("启动进程 %s 失败", idStr),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: fmt.Sprintf("进程 %s 启动成功", idStr),
-	}, nil
+	return p.genericPM2Operation("start", id, "进程 %s 启动成功", "启动进程 %s 失败")
 }
 
 // StopProcess stops a PM2 process
 func (p *PM2Service) StopProcess(id interface{}) (*OperationResult, error) {
-	idStr := fmt.Sprintf("%v", id)
-	cmd := exec.Command("pm2", "stop", idStr)
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: fmt.Sprintf("停止进程 %s 失败", idStr),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: fmt.Sprintf("进程 %s 停止成功", idStr),
-	}, nil
+	return p.genericPM2Operation("stop", id, "进程 %s 停止成功", "停止进程 %s 失败")
 }
 
 // GetLogs retrieves logs for a specific process
 func (p *PM2Service) GetLogs(id interface{}) (*LogData, error) {
 	idStr := fmt.Sprintf("%v", id)
-	cmd := exec.Command("pm2", "logs", idStr, "--lines", "100", "--nostream")
-	output, err := cmd.Output()
+	output, err := runPM2Command("logs", idStr, "--lines", "100", "--nostream")
 
 	if err != nil {
-		return nil, fmt.Errorf("获取进程 %s 日志失败: %v", idStr, err)
+		return nil, fmt.Errorf("获取进程 %s 日志失败: %v. Output: %s", idStr, err, string(output))
 	}
 
 	lines := strings.Split(string(output), "\n")
@@ -228,20 +227,28 @@ func (p *PM2Service) GetMetrics() (*MetricsData, error) {
 
 // GetPM2Version retrieves PM2 version information
 func (p *PM2Service) GetPM2Version() (*PM2VersionInfo, error) {
-	cmd := exec.Command("pm2", "--version")
-	output, err := cmd.Output()
+	// 跨平台检查 PM2 是否存在
+	var checkCmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// Windows: 使用 'where' 命令
+		checkCmd = exec.Command("cmd", "/C", "where pm2")
+	} else {
+		// macOS & Linux: 使用 'command -v'
+		checkCmd = exec.Command("sh", "-c", "command -v pm2")
+	}
 
+	if err := checkCmd.Run(); err != nil {
+		return &PM2VersionInfo{
+			Version:   "",
+			Installed: false,
+			Message:   "PM2 未安装。请先安装 PM2: npm install -g pm2",
+		}, nil
+	}
+
+	// 如果存在，再获取版本号
+	output, err := runPM2Command("--version")
 	if err != nil {
-		// Check if PM2 is not installed
-		if strings.Contains(err.Error(), "executable file not found") ||
-			strings.Contains(err.Error(), "command not found") {
-			return &PM2VersionInfo{
-				Version:   "",
-				Installed: false,
-				Message:   "PM2 未安装。请先安装 PM2: npm install -g pm2",
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to get PM2 version: %v", err)
+		return nil, fmt.Errorf("failed to get PM2 version: %v. Output: %s", err, string(output))
 	}
 
 	version := strings.TrimSpace(string(output))
@@ -262,24 +269,19 @@ func (p *PM2Service) AddProcess(config *ProcessConfig) (*OperationResult, error)
 		}, nil
 	}
 
-	// Build PM2 start command with configuration
 	args := []string{"start", config.Script, "--name", config.Name}
-
 	if config.Cwd != "" {
 		args = append(args, "--cwd", config.Cwd)
 	}
-
 	if config.Args != "" {
-		args = append(args, "--", config.Args)
+		args = append(args, "--")
+		args = append(args, strings.Split(config.Args, " ")...)
 	}
-
 	if config.Instances > 0 {
 		args = append(args, "-i", fmt.Sprintf("%d", config.Instances))
 	}
 
-	cmd := exec.Command("pm2", args...)
-	output, err := cmd.CombinedOutput()
-
+	output, err := runPM2Command(args...)
 	if err != nil {
 		return &OperationResult{
 			Success: false,
@@ -288,18 +290,13 @@ func (p *PM2Service) AddProcess(config *ProcessConfig) (*OperationResult, error)
 		}, nil
 	}
 
-	// If auto-start is enabled, save PM2 configuration
 	if config.AutoStart {
-		saveCmd := exec.Command("pm2", "save")
-		if saveErr := saveCmd.Run(); saveErr != nil {
-			// Log warning but don't fail the operation
+		_, saveErr := runPM2Command("save")
+		if saveErr != nil {
 			fmt.Printf("Warning: Failed to save PM2 configuration: %v\n", saveErr)
 		}
-
-		// Set up startup script (this might require sudo, so we'll just attempt it)
-		startupCmd := exec.Command("pm2", "startup")
-		if startupErr := startupCmd.Run(); startupErr != nil {
-			// Log warning but don't fail the operation
+		_, startupErr := runPM2Command("startup")
+		if startupErr != nil {
 			fmt.Printf("Warning: Failed to setup PM2 startup: %v\n", startupErr)
 		}
 	}
@@ -312,67 +309,40 @@ func (p *PM2Service) AddProcess(config *ProcessConfig) (*OperationResult, error)
 
 // UpdateProcess updates an existing process configuration
 func (p *PM2Service) UpdateProcess(processId interface{}, config *ProcessConfig) (*OperationResult, error) {
-	if config.Name == "" || config.Script == "" {
+	deleteResult, err := p.DeleteProcess(processId)
+	if err != nil || !deleteResult.Success {
 		return &OperationResult{
 			Success: false,
-			Message: "进程名称和脚本路径不能为空",
-			Error:   "Invalid configuration",
+			Message: fmt.Sprintf("更新进程失败：无法删除旧进程 %v", processId),
+			Error:   deleteResult.Error,
 		}, nil
 	}
 
-	idStr := fmt.Sprintf("%v", processId)
+	time.Sleep(500 * time.Millisecond)
 
-	// First, delete the existing process
-	deleteCmd := exec.Command("pm2", "delete", idStr)
-	if err := deleteCmd.Run(); err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: fmt.Sprintf("删除旧进程 %s 失败", idStr),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	// Then add the process with new configuration
-	result, err := p.AddProcess(config)
-	if err != nil {
-		return nil, err
-	}
-
-	if !result.Success {
-		return &OperationResult{
-			Success: false,
-			Message: fmt.Sprintf("更新进程 %s 失败: %s", config.Name, result.Message),
-			Error:   result.Error,
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: fmt.Sprintf("进程 %s 更新成功", config.Name),
-	}, nil
+	return p.AddProcess(config)
 }
 
 // DeleteProcess deletes a process from PM2
 func (p *PM2Service) DeleteProcess(processId interface{}) (*OperationResult, error) {
-	idStr := fmt.Sprintf("%v", processId)
-	cmd := exec.Command("pm2", "delete", idStr)
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: fmt.Sprintf("删除进程 %s 失败", idStr),
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: fmt.Sprintf("进程 %s 删除成功", idStr),
-	}, nil
+	return p.genericPM2Operation("delete", processId, "进程 %s 删除成功", "删除进程 %s 失败")
 }
 
-// formatRuntime formats duration to a human-readable string
+// --- 批量操作 ---
+func (p *PM2Service) StartAllProcesses() (*OperationResult, error) {
+	return p.genericPM2Operation("start", "all", "所有进程启动成功", "启动所有进程失败")
+}
+
+func (p *PM2Service) StopAllProcesses() (*OperationResult, error) {
+	return p.genericPM2Operation("stop", "all", "所有进程停止成功", "停止所有进程失败")
+}
+
+func (p *PM2Service) RestartAllProcesses() (*OperationResult, error) {
+	return p.genericPM2Operation("restart", "all", "所有进程重启成功", "重启所有进程失败")
+}
+
+// --- 辅助函数 (无需修改) ---
+
 func formatRuntime(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%.0f秒", d.Seconds())
@@ -389,24 +359,21 @@ func formatRuntime(d time.Duration) string {
 	}
 }
 
-// Helper functions for safe map access
 func getStringFromMap(m map[string]interface{}, key string) string {
 	keys := strings.Split(key, ".")
-	current := m
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if val, ok := current[k].(string); ok {
-				return val
-			}
+	var current interface{} = m
+	for _, k := range keys {
+		nextMap, ok := current.(map[string]interface{})
+		if !ok {
 			return ""
 		}
-
-		if next, ok := current[k].(map[string]interface{}); ok {
-			current = next
-		} else {
+		current, ok = nextMap[k]
+		if !ok {
 			return ""
 		}
+	}
+	if val, ok := current.(string); ok {
+		return val
 	}
 	return ""
 }
@@ -429,141 +396,72 @@ func getIntFromMap(m map[string]interface{}, key string) int {
 
 func getFloatFromMap(m map[string]interface{}, key string) float64 {
 	keys := strings.Split(key, ".")
-	current := m
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if val, ok := current[k]; ok {
-				switch v := val.(type) {
-				case float64:
-					return v
-				case int:
-					return float64(v)
-				}
-			}
+	var current interface{} = m
+	for _, k := range keys {
+		nextMap, ok := current.(map[string]interface{})
+		if !ok {
 			return 0.0
 		}
-
-		if next, ok := current[k].(map[string]interface{}); ok {
-			current = next
-		} else {
+		current, ok = nextMap[k]
+		if !ok {
 			return 0.0
 		}
+	}
+	switch v := current.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
 	}
 	return 0.0
 }
 
 func getInt64FromMap(m map[string]interface{}, key string) int64 {
 	keys := strings.Split(key, ".")
-	current := m
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if val, ok := current[k]; ok {
-				switch v := val.(type) {
-				case float64:
-					return int64(v)
-				case int64:
-					return v
-				case int:
-					return int64(v)
-				}
-			}
+	var current interface{} = m
+	for _, k := range keys {
+		nextMap, ok := current.(map[string]interface{})
+		if !ok {
 			return 0
 		}
-
-		if next, ok := current[k].(map[string]interface{}); ok {
-			current = next
-		} else {
+		current, ok = nextMap[k]
+		if !ok {
 			return 0
 		}
+	}
+	switch v := current.(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
 	}
 	return 0
 }
 
 func getBoolFromMap(m map[string]interface{}, key string) bool {
 	keys := strings.Split(key, ".")
-	current := m
-
-	for i, k := range keys {
-		if i == len(keys)-1 {
-			if val, ok := current[k]; ok {
-				switch v := val.(type) {
-				case bool:
-					return v
-				case string:
-					return v == "true" || v == "1"
-				case float64:
-					return v != 0
-				case int:
-					return v != 0
-				}
-			}
+	var current interface{} = m
+	for _, k := range keys {
+		nextMap, ok := current.(map[string]interface{})
+		if !ok {
 			return false
 		}
-
-		if next, ok := current[k].(map[string]interface{}); ok {
-			current = next
-		} else {
+		current, ok = nextMap[k]
+		if !ok {
 			return false
 		}
+	}
+	switch v := current.(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true" || v == "1"
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
 	}
 	return false
-}
-
-// StartAllProcesses starts all PM2 processes
-func (p *PM2Service) StartAllProcesses() (*OperationResult, error) {
-	cmd := exec.Command("pm2", "start", "all")
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: "启动所有进程失败",
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: "所有进程启动成功",
-	}, nil
-}
-
-// StopAllProcesses stops all PM2 processes
-func (p *PM2Service) StopAllProcesses() (*OperationResult, error) {
-	cmd := exec.Command("pm2", "stop", "all")
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: "停止所有进程失败",
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: "所有进程停止成功",
-	}, nil
-}
-
-// RestartAllProcesses restarts all PM2 processes
-func (p *PM2Service) RestartAllProcesses() (*OperationResult, error) {
-	cmd := exec.Command("pm2", "restart", "all")
-	err := cmd.Run()
-
-	if err != nil {
-		return &OperationResult{
-			Success: false,
-			Message: "重启所有进程失败",
-			Error:   err.Error(),
-		}, nil
-	}
-
-	return &OperationResult{
-		Success: true,
-		Message: "所有进程重启成功",
-	}, nil
 }

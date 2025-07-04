@@ -97,7 +97,6 @@ export function ListProcesses() {
 }
 
 /**
- * RestartAllProcesses restarts all PM2 processes
  * @returns {Promise<$models.OperationResult | null> & { cancel(): void }}
  */
 export function RestartAllProcesses() {
@@ -124,7 +123,7 @@ export function RestartProcess(id) {
 }
 
 /**
- * StartAllProcesses starts all PM2 processes
+ * --- 批量操作 ---
  * @returns {Promise<$models.OperationResult | null> & { cancel(): void }}
  */
 export function StartAllProcesses() {
@@ -151,7 +150,6 @@ export function StartProcess(id) {
 }
 
 /**
- * StopAllProcesses stops all PM2 processes
  * @returns {Promise<$models.OperationResult | null> & { cancel(): void }}
  */
 export function StopAllProcesses() {
