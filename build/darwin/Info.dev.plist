@@ -6,7 +6,7 @@
         <key>CFBundleName</key>
         <string>My Product</string>
         <key>CFBundleExecutable</key>
-        <string>pm2-manager-wails3</string>
+        <string>pm2-manager</string>
         <key>CFBundleIdentifier</key>
         <string>com.wails.pm2-manager-wails3</string>
         <key>CFBundleVersion</key>

@@ -17,12 +17,12 @@ license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/pm2-manager-wails3"
-    dst: "/usr/local/bin/pm2-manager-wails3"
+  - src: "./bin/pm2-manager"
+    dst: "/usr/local/bin/pm2-manager"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/pm2-manager-wails3.png"
-  - src: "./build/linux/pm2-manager-wails3.desktop"
-    dst: "/usr/share/applications/pm2-manager-wails3.desktop"
+  - src: "./build/linux/pm2-manager.desktop"
+    dst: "/usr/share/applications/pm2-manager.desktop"
 
 depends:
   - gtk3
