@@ -1,6 +1,5 @@
 name: Release
 
-# ⬇️ IMPORTANT: This workflow now ONLY runs when you push a tag like "v1.0.0"
 on:
   push:
     tags:
@@ -71,8 +70,37 @@ jobs:
         create-dmg \
           --volname "PM2 Manager" \
           --app-drop-link 600 185 \
-          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
+          "pm2-manager.dmg" \
           "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
+
+    - name: Verify build artifacts (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        if (!(Test-Path "${{ matrix.asset_path }}")) {
+          Write-Host "❌ Build artifact not found: ${{ matrix.asset_path }}"
+          Write-Host "📁 Available files:"
+          Get-ChildItem -Recurse -Include "*.exe","*.dmg","*.app" | Select-Object -First 10
+          exit 1
+        }
+        Write-Host "✅ Found artifact: ${{ matrix.asset_path }}"
+      shell: powershell
+
+    - name: Verify build artifacts (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        if [ ! -f "${{ matrix.asset_path }}" ]; then
+          echo "❌ Build artifact not found: ${{ matrix.asset_path }}"
+          echo "📁 Available files:"
+          find . -name "*.exe" -o -name "*.dmg" -o -name "*.app" | head -10
+          exit 1
+        fi
+        echo "✅ Found artifact: ${{ matrix.asset_path }}"
+
+    - name: Upload artifact for release job
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.os }}-build
+        path: ${{ matrix.asset_path }}
 
   # STEP 2: Create the GitHub Release
   release:
@@ -88,17 +116,17 @@ jobs:
       with:
         path: artifacts
 
-    - name: Display structure of downloaded files
-      run: ls -R artifacts
+    - name: Reorganize artifacts
+      run: |
+        mkdir -p release-files
+        find artifacts -type f -exec cp {} release-files/ \;
+        ls -la release-files/
 
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
       with:
-        # This uses the tag you push (e.g., "v1.0.1") as the release version
         tag_name: ${{ github.ref_name }}
         name: Release ${{ github.ref_name }}
-        # Setting draft & prerelease to false creates a final, public release
         draft: false
         prerelease: false
-        # This uploads all files from the artifacts directory
-        files: artifacts/**/*
+        files: release-files/*
