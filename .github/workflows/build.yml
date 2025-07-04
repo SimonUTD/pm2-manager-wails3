@@ -65,19 +65,12 @@ jobs:
     - name: Create DMG for macOS
       if: matrix.os == 'macos-latest'
       run: |
-        # 安装 DMG 打包工具
         brew install create-dmg
-        # 执行打包命令
         create-dmg \
           --volname "PM2 Manager" \
-          --window-pos 200 120 \
-          --window-size 800 400 \
-          --icon-size 100 \
-          --icon "pm2-manager.app" 200 190 \
-          --hide-extension "pm2-manager.app" \
           --app-drop-link 600 185 \
-          "build/bin/pm2-manager.dmg" \
-          "build/bin/pm2-manager.app"
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
 
     - name: Upload binaries to GitHub Release
       uses: softprops/action-gh-release@v2

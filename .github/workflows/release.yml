@@ -54,8 +54,8 @@ jobs:
         create-dmg \
           --volname "PM2 Manager" \
           --app-drop-link 600 185 \
-          "build/bin/pm2-manager.dmg" \
-          "build/bin/pm2-manager.app"
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
           
     # 将构建好的文件作为 artifact 上传，供下一个 Job 使用
     - name: Upload artifact
