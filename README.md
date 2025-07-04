@@ -21,8 +21,27 @@ A modern desktop application for managing PM2 processes, built with Wails3 and n
   ```bash
   npm install -g pm2
   ```
-- **Go**: Version 1.19 or higher
+- **Go**: Version 1.21 or higher
 - **Node.js**: For frontend dependencies
+
+### Platform-specific Requirements
+
+#### Linux
+- Standard GCC build tools
+- GTK3 development libraries
+- WebKit2GTK development libraries
+```bash
+sudo apt-get install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+```
+
+#### macOS
+- Xcode command line tools
+```bash
+xcode-select --install
+```
+
+#### Windows
+- WebView2 Runtime (usually pre-installed on Windows 10/11)
 
 ## Installation & Setup
 

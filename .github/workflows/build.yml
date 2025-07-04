@@ -14,38 +14,14 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            goos: windows
-            goarch: amd64
-            extension: .exe
             name: windows-amd64
-          - os: windows-latest
-            goos: windows
-            goarch: arm64
-            extension: .exe
-            name: windows-arm64
           - os: macos-latest
-            goos: darwin
-            goarch: amd64
-            extension: ""
-            name: macos-amd64
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
-            extension: ""
-            name: macos-arm64
+            name: macos-universal
           - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            extension: ""
             name: linux-amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            extension: ""
-            name: linux-arm64
 
     runs-on: ${{ matrix.os }}
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -53,7 +29,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'
+        go-version: '1.23'
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -62,71 +38,105 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install frontend dependencies
-      run: |
-        cd frontend
-        npm ci
-
-    - name: Build frontend
-      run: |
-        cd frontend
-        npm run build
+    - name: Install Wails3
+      run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
     - name: Install Linux dependencies
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+        sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+
+    - name: Install macOS dependencies
+      if: matrix.os == 'macos-latest'
+      run: |
+        xcode-select --install || echo "Xcode command line tools already installed"
+
+    - name: Check dependencies
+      run: wails3 doctor
 
     - name: Build application
-      env:
-        GOOS: ${{ matrix.goos }}
-        GOARCH: ${{ matrix.goarch }}
-        CGO_ENABLED: 1
-      run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          go build -ldflags="-H windowsgui -s -w" -o pm2-manager${{ matrix.extension }} .
-        else
-          go build -ldflags="-s -w" -o pm2-manager${{ matrix.extension }} .
-        fi
-      shell: bash
+      run: wails3 build
 
-    - name: Create package directory
+    - name: Package application
+      run: wails3 package
+
+    - name: Create distribution package
       run: |
         mkdir -p dist/pm2-manager-${{ matrix.name }}
-        cp pm2-manager${{ matrix.extension }} dist/pm2-manager-${{ matrix.name }}/
+
+        # Copy built application
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp bin/*.exe dist/pm2-manager-${{ matrix.name }}/
+        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+          cp -r bin/*.app dist/pm2-manager-${{ matrix.name }}/ || cp bin/* dist/pm2-manager-${{ matrix.name }}/
+        else
+          cp bin/* dist/pm2-manager-${{ matrix.name }}/
+        fi
+
+        # Copy documentation
         cp README.md dist/pm2-manager-${{ matrix.name }}/
         cp README_zh.md dist/pm2-manager-${{ matrix.name }}/
-      shell: bash
+        cp CHANGELOG.md dist/pm2-manager-${{ matrix.name }}/
 
-    - name: Create Windows installer (Windows only)
-      if: matrix.os == 'windows-latest'
-      run: |
-        # Create a simple batch file for Windows
-        echo '@echo off' > dist/pm2-manager-${{ matrix.name }}/install.bat
-        echo 'echo Installing PM2 Manager...' >> dist/pm2-manager-${{ matrix.name }}/install.bat
-        echo 'echo Please ensure PM2 is installed: npm install -g pm2' >> dist/pm2-manager-${{ matrix.name }}/install.bat
-        echo 'echo Run pm2-manager.exe to start the application' >> dist/pm2-manager-${{ matrix.name }}/install.bat
-        echo 'pause' >> dist/pm2-manager-${{ matrix.name }}/install.bat
+        # Create installation instructions
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cat > dist/pm2-manager-${{ matrix.name }}/INSTALL.txt << 'EOF'
+        PM2 Manager Installation Instructions
+        ====================================
 
-    - name: Create Linux/macOS installer script
-      if: matrix.os != 'windows-latest'
-      run: |
-        cat > dist/pm2-manager-${{ matrix.name }}/install.sh << 'EOF'
-        #!/bin/bash
-        echo "Installing PM2 Manager..."
-        echo "Please ensure PM2 is installed: npm install -g pm2"
-        chmod +x pm2-manager
-        echo "Installation complete!"
-        echo "Run ./pm2-manager to start the application"
+        1. Prerequisites:
+           - Ensure Node.js is installed
+           - Install PM2 globally: npm install -g pm2
+
+        2. Installation:
+           - Extract this archive to your desired location
+           - Double-click the .exe file to run the application
+
+        3. Usage:
+           - The application will automatically detect your PM2 installation
+           - If PM2 is not found, install it using: npm install -g pm2
+
+        For more information, see README.md
         EOF
-        chmod +x dist/pm2-manager-${{ matrix.name }}/install.sh
+        else
+          cat > dist/pm2-manager-${{ matrix.name }}/install.sh << 'EOF'
+        #!/bin/bash
+        echo "PM2 Manager Installation"
+        echo "======================="
+        echo ""
+
+        # Check for PM2
+        if ! command -v pm2 &> /dev/null; then
+            echo "⚠ PM2 not found. Installing PM2..."
+            if command -v npm &> /dev/null; then
+                npm install -g pm2
+                echo "✓ PM2 installed successfully"
+            else
+                echo "✗ npm not found. Please install Node.js and npm first"
+                echo "  Then run: npm install -g pm2"
+                exit 1
+            fi
+        else
+            echo "✓ PM2 is already installed"
+        fi
+
+        # Make executable
+        chmod +x pm2-manager* 2>/dev/null || chmod +x *.app/Contents/MacOS/* 2>/dev/null || true
+        echo "✓ Made application executable"
+
+        echo ""
+        echo "Installation complete! Run the application to start PM2 Manager"
+        EOF
+          chmod +x dist/pm2-manager-${{ matrix.name }}/install.sh
+        fi
+      shell: bash
 
     - name: Create archive
       run: |
         cd dist
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          7z a pm2-manager-${{ matrix.name }}.zip pm2-manager-${{ matrix.name }}/
+          powershell -command "Compress-Archive -Path 'pm2-manager-${{ matrix.name }}' -DestinationPath 'pm2-manager-${{ matrix.name }}.zip'"
         else
           tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/
         fi
@@ -141,68 +151,4 @@ jobs:
           dist/pm2-manager-${{ matrix.name }}.tar.gz
         retention-days: 30
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
 
-    - name: Download all artifacts
-      uses: actions/download-artifact@v3
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: PM2 Manager ${{ github.ref }}
-        draft: false
-        prerelease: false
-        body: |
-          ## PM2 Manager Release ${{ github.ref }}
-          
-          ### Features
-          - 🚀 Process Management: Add, edit, delete, and control PM2 processes
-          - 📊 Real-time Monitoring: Live process status, CPU, memory usage
-          - 🔧 Advanced Configuration: Set startup commands, working directories, auto-start options
-          - 📈 System Metrics: Overview of total processes, running, errored, and stopped processes
-          
-          ### Installation
-          1. Download the appropriate package for your system
-          2. Extract the archive
-          3. Ensure PM2 is installed: `npm install -g pm2`
-          4. Run the application
-          
-          ### Supported Platforms
-          - Windows (x64, ARM64)
-          - macOS (Intel, Apple Silicon)
-          - Linux (x64, ARM64)
-          
-          ### Changelog
-          See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
-
-    - name: Upload Release Assets
-      run: |
-        # Install GitHub CLI if not available
-        if ! command -v gh &> /dev/null; then
-          echo "Installing GitHub CLI..."
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt update
-          sudo apt install gh
-        fi
-
-        # Upload assets
-        for file in pm2-manager-*/pm2-manager-*.{zip,tar.gz}; do
-          if [ -f "$file" ]; then
-            echo "Uploading $file"
-            gh release upload ${{ github.ref }} "$file" --clobber
-          fi
-        done
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

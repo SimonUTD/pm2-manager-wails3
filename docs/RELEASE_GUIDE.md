@@ -188,8 +188,16 @@ scripts\build.bat 1.0.0
 
 1. **Missing dependencies on Linux**:
    ```bash
-   sudo apt-get install libgtk-3-dev libwebkit2gtk-4.0-dev
+   sudo apt-get install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
    ```
+
+2. **Missing dependencies on macOS**:
+   ```bash
+   xcode-select --install
+   ```
+
+3. **Missing dependencies on Windows**:
+   - Ensure WebView2 Runtime is installed (usually pre-installed on Windows 10/11)
 
 2. **Cross-compilation issues**:
    - Ensure CGO_ENABLED=1 for GUI applications

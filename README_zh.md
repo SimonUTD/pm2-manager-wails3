@@ -21,8 +21,27 @@
   ```bash
   npm install -g pm2
   ```
-- **Go**: 版本 1.19 或更高
+- **Go**: 版本 1.21 或更高
 - **Node.js**: 用于前端依赖
+
+### 平台特定要求
+
+#### Linux
+- 标准 GCC 构建工具
+- GTK3 开发库
+- WebKit2GTK 开发库
+```bash
+sudo apt-get install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+```
+
+#### macOS
+- Xcode 命令行工具
+```bash
+xcode-select --install
+```
+
+#### Windows
+- WebView2 Runtime（Windows 10/11 通常预装）
 
 ## 安装和设置
 

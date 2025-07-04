@@ -16,14 +16,6 @@ NC='\033[0m' # No Color
 APP_NAME="pm2-manager"
 VERSION=${1:-"dev"}
 BUILD_DIR="dist"
-PLATFORMS=(
-    "windows/amd64"
-    "windows/arm64"
-    "darwin/amd64"
-    "darwin/arm64"
-    "linux/amd64"
-    "linux/arm64"
-)
 
 echo -e "${BLUE}🚀 PM2 Manager Build Script${NC}"
 echo -e "${BLUE}=============================${NC}"
@@ -49,17 +41,55 @@ print_info() {
 # Check prerequisites
 check_prerequisites() {
     print_info "Checking prerequisites..."
-    
+
     if ! command -v go &> /dev/null; then
         print_error "Go is not installed or not in PATH"
         exit 1
     fi
-    
+
     if ! command -v npm &> /dev/null; then
         print_error "npm is not installed or not in PATH"
         exit 1
     fi
-    
+
+    if ! command -v wails3 &> /dev/null; then
+        print_warning "Wails3 CLI not found, installing..."
+        go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+        if ! command -v wails3 &> /dev/null; then
+            print_error "Failed to install Wails3 CLI"
+            exit 1
+        fi
+        print_status "Wails3 CLI installed"
+    fi
+
+    # Check platform-specific dependencies
+    case "$(uname -s)" in
+        Linux*)
+            print_info "Checking Linux dependencies..."
+            if ! pkg-config --exists gtk+-3.0; then
+                print_error "GTK3 development libraries not found"
+                print_error "Install with: sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev"
+                exit 1
+            fi
+            if ! pkg-config --exists webkit2gtk-4.1; then
+                print_error "WebKit2GTK development libraries not found"
+                print_error "Install with: sudo apt-get install libwebkit2gtk-4.1-dev"
+                exit 1
+            fi
+            ;;
+        Darwin*)
+            print_info "Checking macOS dependencies..."
+            if ! xcode-select -p &> /dev/null; then
+                print_error "Xcode command line tools not found"
+                print_error "Install with: xcode-select --install"
+                exit 1
+            fi
+            ;;
+        MINGW*|CYGWIN*|MSYS*)
+            print_info "Windows detected - WebView2 Runtime should be pre-installed"
+            ;;
+    esac
+
     print_status "Prerequisites check passed"
 }
 
@@ -71,68 +101,66 @@ clean_build() {
     print_status "Build directory cleaned"
 }
 
-# Install frontend dependencies
-install_frontend_deps() {
-    print_info "Installing frontend dependencies..."
-    cd frontend
-    npm ci
-    cd ..
-    print_status "Frontend dependencies installed"
+# Check Wails3 dependencies
+check_wails_deps() {
+    print_info "Checking Wails3 dependencies..."
+    wails3 doctor
+    print_status "Wails3 dependencies check completed"
 }
 
-# Build frontend
-build_frontend() {
-    print_info "Building frontend..."
-    cd frontend
-    npm run build
-    cd ..
-    print_status "Frontend built successfully"
+# Build using Wails3
+build_wails() {
+    print_info "Building application with Wails3..."
+
+    if wails3 build; then
+        print_status "Wails3 build completed successfully"
+    else
+        print_error "Wails3 build failed"
+        return 1
+    fi
 }
 
-# Build for specific platform
-build_platform() {
-    local platform=$1
-    local goos=$(echo $platform | cut -d'/' -f1)
-    local goarch=$(echo $platform | cut -d'/' -f2)
-    local extension=""
-    
-    if [ "$goos" = "windows" ]; then
-        extension=".exe"
+# Package using Wails3
+package_wails() {
+    print_info "Packaging application with Wails3..."
+
+    if wails3 package; then
+        print_status "Wails3 packaging completed successfully"
+    else
+        print_error "Wails3 packaging failed"
+        return 1
     fi
-    
-    local output_name="${APP_NAME}-${goos}-${goarch}${extension}"
-    local package_name="${APP_NAME}-${goos}-${goarch}"
-    
-    print_info "Building for $goos/$goarch..."
-    
-    # Set environment variables
-    export GOOS=$goos
-    export GOARCH=$goarch
-    export CGO_ENABLED=1
-    
-    # Build flags
-    local ldflags="-s -w"
-    if [ "$goos" = "windows" ]; then
-        ldflags="-H windowsgui -s -w"
+}
+
+# Create distribution package
+create_dist_package() {
+    print_info "Creating distribution package..."
+
+    local platform_name=""
+    case "$(uname -s)" in
+        Linux*)   platform_name="linux-amd64" ;;
+        Darwin*)  platform_name="macos-universal" ;;
+        MINGW*|CYGWIN*|MSYS*) platform_name="windows-amd64" ;;
+        *) platform_name="unknown" ;;
+    esac
+
+    local package_dir="$BUILD_DIR/pm2-manager-$platform_name"
+    mkdir -p "$package_dir"
+
+    # Copy built application
+    if [ -d "bin" ]; then
+        cp -r bin/* "$package_dir/" 2>/dev/null || true
     fi
-    
-    # Build the application
-    if go build -ldflags="$ldflags" -o "$BUILD_DIR/$output_name" .; then
-        print_status "Built $output_name"
-        
-        # Create package directory
-        local package_dir="$BUILD_DIR/$package_name"
-        mkdir -p "$package_dir"
-        
-        # Copy files
-        cp "$BUILD_DIR/$output_name" "$package_dir/"
-        cp README.md "$package_dir/"
-        cp README_zh.md "$package_dir/"
-        cp CHANGELOG.md "$package_dir/"
-        
-        # Create installation instructions
-        if [ "$goos" = "windows" ]; then
-            cat > "$package_dir/INSTALL.txt" << EOF
+
+    # Copy documentation
+    cp README.md "$package_dir/" 2>/dev/null || true
+    cp README_zh.md "$package_dir/" 2>/dev/null || true
+    cp CHANGELOG.md "$package_dir/" 2>/dev/null || true
+
+    # Create installation instructions
+    case "$(uname -s)" in
+        MINGW*|CYGWIN*|MSYS*)
+            cat > "$package_dir/INSTALL.txt" << 'EOF'
 PM2 Manager Installation Instructions
 ====================================
 
@@ -142,7 +170,7 @@ PM2 Manager Installation Instructions
 
 2. Installation:
    - Extract this archive to your desired location
-   - Double-click ${output_name} to run the application
+   - Double-click the .exe file to run the application
 
 3. Usage:
    - The application will automatically detect your PM2 installation
@@ -150,7 +178,8 @@ PM2 Manager Installation Instructions
 
 For more information, see README.md
 EOF
-        else
+            ;;
+        *)
             cat > "$package_dir/install.sh" << 'EOF'
 #!/bin/bash
 echo "PM2 Manager Installation"
@@ -173,46 +202,36 @@ else
 fi
 
 # Make executable
-chmod +x ${output_name}
-echo "✓ Made ${output_name} executable"
+chmod +x pm2-manager* 2>/dev/null || chmod +x *.app/Contents/MacOS/* 2>/dev/null || true
+echo "✓ Made application executable"
 
 echo ""
-echo "Installation complete! Run ./${output_name} to start the application"
+echo "Installation complete! Run the application to start PM2 Manager"
 EOF
             chmod +x "$package_dir/install.sh"
-            chmod +x "$package_dir/$output_name"
-        fi
-        
-        # Create archive
-        cd "$BUILD_DIR"
-        if [ "$goos" = "windows" ]; then
-            if command -v zip &> /dev/null; then
-                zip -r "${package_name}.zip" "$package_name/"
-                print_status "Created ${package_name}.zip"
-            else
-                print_warning "zip command not found, skipping archive creation"
-            fi
-        else
-            tar -czf "${package_name}.tar.gz" "$package_name/"
-            print_status "Created ${package_name}.tar.gz"
-        fi
-        cd ..
-        
-    else
-        print_error "Failed to build for $goos/$goarch"
-        return 1
-    fi
-}
+            ;;
+    esac
 
-# Build all platforms
-build_all_platforms() {
-    print_info "Building for all platforms..."
-    
-    for platform in "${PLATFORMS[@]}"; do
-        build_platform "$platform"
-    done
-    
-    print_status "All platforms built successfully"
+    # Create archive
+    cd "$BUILD_DIR"
+    case "$(uname -s)" in
+        MINGW*|CYGWIN*|MSYS*)
+            if command -v powershell &> /dev/null; then
+                powershell -command "Compress-Archive -Path 'pm2-manager-$platform_name' -DestinationPath 'pm2-manager-$platform_name.zip'"
+                print_status "Created pm2-manager-$platform_name.zip"
+            elif command -v zip &> /dev/null; then
+                zip -r "pm2-manager-$platform_name.zip" "pm2-manager-$platform_name/"
+                print_status "Created pm2-manager-$platform_name.zip"
+            else
+                print_warning "No zip utility found, skipping archive creation"
+            fi
+            ;;
+        *)
+            tar -czf "pm2-manager-$platform_name.tar.gz" "pm2-manager-$platform_name/"
+            print_status "Created pm2-manager-$platform_name.tar.gz"
+            ;;
+    esac
+    cd ..
 }
 
 # Show build summary
@@ -221,20 +240,19 @@ show_summary() {
     echo -e "${BLUE}📦 Build Summary${NC}"
     echo -e "${BLUE}================${NC}"
     echo ""
-    
+
     print_info "Build artifacts in $BUILD_DIR/:"
-    ls -la "$BUILD_DIR"/ | grep -E '\.(zip|tar\.gz|exe)$' || echo "No archives found"
-    
+    ls -la "$BUILD_DIR"/ 2>/dev/null || echo "No build directory found"
+
     echo ""
-    print_info "Package directories:"
-    ls -la "$BUILD_DIR"/ | grep '^d' | grep -v '^\.$' | grep -v '^\.\.$' || echo "No package directories found"
-    
+    print_info "Binary files in bin/:"
+    ls -la bin/ 2>/dev/null || echo "No bin directory found"
+
     echo ""
     print_status "Build completed successfully!"
     echo ""
-    print_info "To test a build:"
-    echo "  cd $BUILD_DIR/<platform-package>/"
-    echo "  ./<executable-name>"
+    print_info "To test the application:"
+    echo "  wails3 dev"
     echo ""
     print_info "To create a release:"
     echo "  git tag v$VERSION"
@@ -245,12 +263,13 @@ show_summary() {
 main() {
     echo -e "${BLUE}Building PM2 Manager v$VERSION${NC}"
     echo ""
-    
+
     check_prerequisites
+    check_wails_deps
     clean_build
-    install_frontend_deps
-    build_frontend
-    build_all_platforms
+    build_wails
+    package_wails
+    create_dist_package
     show_summary
 }
 

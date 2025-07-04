@@ -7,7 +7,7 @@ includes:
   linux: ./build/linux/Taskfile.yml
 
 vars:
-  APP_NAME: "pm2-manager-wails3"
+  APP_NAME: "pm2-manager"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
