@@ -6,8 +6,6 @@
 *.dylib
 build/bin
 
-# Wails build directory
-build/
 
 # Dependencies
 node_modules/
