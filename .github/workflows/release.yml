@@ -13,56 +13,66 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows build
-          - os: windows-latest
-            asset_name: pm2-manager-windows-amd64.exe
-            asset_path: build/bin/pm2-manager.exe # This path is correct for Windows
-            build_command: wails3 task package
+          # Windows 配置
+          - os: 'windows-latest'
+            platform: 'windows/amd64'
+            asset_name_suffix: 'windows-amd64.exe'
+            # 这是根据你 wails.json 确认的正确路径
+            asset_path: 'build/bin/pm2-manager.exe'
+            wails_os: 'windows'
             
-          # macOS build
-          - os: macos-latest
-            asset_name: pm2-manager-macos-universal.dmg
-            asset_path: pm2-manager.dmg # 👈 FIX: Corrected path for the DMG file
-            build_command: wails3 task package:universal
-
+          # macOS 配置
+          - os: 'macos-latest'
+            platform: 'darwin/universal'
+            asset_name_suffix: 'macos-universal.dmg'
+            # 这是打包成 dmg 后的最终路径
+            asset_path: 'pm2-manager.dmg'
+            wails_os: 'darwin'
+    
     runs-on: ${{ matrix.os }}
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Go & Node.js
+    - name: Set up Go
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
-    - uses: actions/setup-node@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install dependencies and build
-      run: |
-        go mod tidy
-        go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-        ${{ matrix.build_command }}
+    - name: Tidy Go modules
+      run: go mod tidy
+
+    - name: Install Wails3 CLI
+      run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+    - name: Check dependencies
+      run: wails3 doctor
+
+    - name: Build Wails project (macOS)
+      if: matrix.os == 'macos-latest'
+      run: wails3 task ${{ matrix.wails_os }}:package:universal
+
+    - name: Build Wails project (Windows)
+      if: matrix.os == 'windows-latest'
+      run: wails3 task ${{ matrix.wails_os }}:package
 
     - name: Create DMG for macOS
       if: matrix.os == 'macos-latest'
       run: |
         brew install create-dmg
-        # This command creates pm2-manager.dmg in the root of the project
         create-dmg \
           --volname "PM2 Manager" \
           --app-drop-link 600 185 \
-          "pm2-manager.dmg" \
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
           "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
-          
-    - name: Upload artifact for release job
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.asset_name }}
-        path: ${{ matrix.asset_path }}
 
   # STEP 2: Create the GitHub Release
   release:
