@@ -89,7 +89,7 @@ jobs:
         cp -R bin/pm2-manager-wails3.app dmg-temp/
         create-dmg \
           --volname "PM2 Manager" \
-          "pm2-manager-wails3r.dmg" \
+          "pm2-manager-wails3.dmg" \
           "dmg-temp/pm2-manager-wails3.app"
 
     - name: Verify build artifacts (Windows)
