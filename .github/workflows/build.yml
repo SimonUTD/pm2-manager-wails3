@@ -14,7 +14,7 @@ jobs:
           # Windows 配置
           - os: 'windows-latest'
             platform: 'windows/amd64'
-            asset_name_suffix: 'windows-amd64.exe'
+            asset_name: pm2-manager-windows-amd64.exe
             # 这是根据你 wails.json 确认的正确路径
             asset_path: 'build/bin/pm2-manager.exe'
             wails_os: 'windows'
@@ -22,9 +22,9 @@ jobs:
           # macOS 配置
           - os: 'macos-latest'
             platform: 'darwin/universal'
-            asset_name_suffix: 'macos-universal.dmg'
+            asset_name: pm2-manager-macos-universal.dmg
             # 这是打包成 dmg 后的最终路径
-            asset_path: 'pm2-manager.dmg'
+            asset_path: 'build/bin/pm2-manager.dmg'
             wails_os: 'darwin'
     
     runs-on: ${{ matrix.os }}
