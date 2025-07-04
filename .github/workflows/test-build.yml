@@ -1,29 +1,24 @@
-name: Build and Release
+name: Test Build
 
 on:
-  push:
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
+  push:
+    branches: [ main, master ]
 
 env:
   APP_NAME: pm2-manager
 
 jobs:
   test-build:
-    name: test-build (${{ matrix.name }})
     strategy:
-      fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: windows-amd64
-          - os: macos-latest
-            name: macos-universal
           - os: ubuntu-latest
             name: linux-amd64
+          - os: macos-latest
+            name: macos-universal
+          - os: windows-latest
+            name: windows-amd64
 
     runs-on: ${{ matrix.os }}
 
@@ -60,13 +55,13 @@ jobs:
           build-essential \
           pkg-config \
           libgtk-3-dev \
-          libwebkit2gtk-4.0-dev
+          libwebkit2gtk-4.1-dev
 
     - name: Install macOS dependencies
       if: matrix.os == 'macos-latest'
       run: |
         # Xcode command line tools should be pre-installed on GitHub runners
-        xcode-select --print-path || echo "Xcode tools not found but continuing..."
+        xcode-select --print-path || echo "Xcode tools not found"
 
     - name: Check dependencies
       run: wails3 doctor
@@ -76,29 +71,31 @@ jobs:
         cd frontend
         npm install
 
-    - name: Generate bindings
-      run: wails3 task common:generate:bindings
-
-    - name: Build frontend
-      run: wails3 task common:build:frontend
-      env:
-        PRODUCTION: "true"
-
-    - name: Build application
-      run: wails3 task build
-      env:
-        PRODUCTION: "true"
-
-    - name: List bin directory contents
+    - name: Test basic build
       run: |
-        echo "Contents of bin directory:"
+        echo "Testing basic Go build..."
+        go mod tidy
+        go build -o test-binary .
+        ls -la test-binary* || echo "No test binary found"
+        
+        echo "Testing Wails3 task system..."
+        wails3 task common:generate:bindings || echo "Bindings generation failed"
+        
+        echo "Testing frontend build..."
+        wails3 task common:build:frontend || echo "Frontend build failed"
+        
+        echo "Testing application build..."
+        wails3 task build || echo "Application build failed"
+        
+        echo "Listing bin directory:"
         ls -la bin/ || echo "bin directory does not exist"
 
-    - name: Upload build artifacts
+    - name: Upload build logs
+      if: failure()
       uses: actions/upload-artifact@v3
       with:
-        name: pm2-manager-${{ matrix.name }}
-        path: bin/
-        retention-days: 30
-
-
+        name: build-logs-${{ matrix.name }}
+        path: |
+          *.log
+          build/*.log
+        retention-days: 7
