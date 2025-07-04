@@ -1,26 +1,28 @@
 name: Release
 
-# 触发条件：仅在创建 v 开头的标签时运行
+# ⬇️ IMPORTANT: This workflow now ONLY runs when you push a tag like "v1.0.0"
 on:
   push:
     tags:
       - 'v*'
 
 jobs:
-  # 第一步：构建所有平台的应用
+  # STEP 1: Build on all platforms
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
+          # Windows build
           - os: windows-latest
             asset_name: pm2-manager-windows-amd64.exe
-            asset_path: build/bin/pm2-manager.exe
+            asset_path: build/bin/pm2-manager.exe # This path is correct for Windows
             build_command: wails3 task package
             
+          # macOS build
           - os: macos-latest
             asset_name: pm2-manager-macos-universal.dmg
-            asset_path: build/bin/pm2-manager.dmg
+            asset_path: pm2-manager.dmg # 👈 FIX: Corrected path for the DMG file
             build_command: wails3 task package:universal
 
     runs-on: ${{ matrix.os }}
@@ -29,13 +31,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Go
+    - name: Set up Go & Node.js
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
+    - uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
@@ -51,31 +51,30 @@ jobs:
       if: matrix.os == 'macos-latest'
       run: |
         brew install create-dmg
+        # This command creates pm2-manager.dmg in the root of the project
         create-dmg \
           --volname "PM2 Manager" \
           --app-drop-link 600 185 \
-          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
+          "pm2-manager.dmg" \
           "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
           
-    # 将构建好的文件作为 artifact 上传，供下一个 Job 使用
-    - name: Upload artifact
+    - name: Upload artifact for release job
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.asset_name }}
         path: ${{ matrix.asset_path }}
 
-  # 第二步：创建 Release 并上传所有文件
+  # STEP 2: Create the GitHub Release
   release:
-    # 等待 build Job 全部成功后运行
     needs: build
     runs-on: ubuntu-latest
+    # 👈 FIX: Added permissions block to fix the 403 error
     permissions:
-      contents: write # 必须，用于创建 Release
+      contents: write
 
     steps:
-    - name: Download all artifacts
+    - name: Download all build artifacts
       uses: actions/download-artifact@v4
-      # 下载到 artifacts 文件夹
       with:
         path: artifacts
 
@@ -85,13 +84,11 @@ jobs:
     - name: Create Release and Upload Assets
       uses: softprops/action-gh-release@v2
       with:
-        # 从触发的 tag (例如 'v1.0.0') 中获取版本号
+        # This uses the tag you push (e.g., "v1.0.1") as the release version
         tag_name: ${{ github.ref_name }}
-        # 将 tag 作为 Release 的标题
         name: Release ${{ github.ref_name }}
-        # 设置为 false，表示是正式版，不是预发布
-        prerelease: false
-        # 设置为 false，表示直接发布，不是草稿
+        # Setting draft & prerelease to false creates a final, public release
         draft: false
-        # 上传 artifacts 目录下所有文件夹里的所有文件
+        prerelease: false
+        # This uploads all files from the artifacts directory
         files: artifacts/**/*
