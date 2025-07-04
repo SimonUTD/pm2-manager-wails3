@@ -1,0 +1,216 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: PM2 Manager ${{ github.ref }}
+        draft: false
+        prerelease: false
+        body: |
+          ## PM2 Manager Release ${{ github.ref }}
+          
+          ### 🎉 新功能 / New Features
+          - 🚀 进程管理：添加、编辑、删除和控制 PM2 进程
+          - 📊 实时监控：实时进程状态、CPU、内存使用情况
+          - 🔧 高级配置：设置启动命令、工作目录、自启动选项
+          - 📈 系统指标：总进程数、运行中、错误和停止进程的概览
+          - 🔍 详细信息：查看 PID、用户、完整命令、脚本路径
+          - 📝 进程日志：实时日志查看和导出功能
+          - ⚙️ PM2 版本检测：自动检测 PM2 安装状态和版本显示
+          - 🎯 批量操作：一键启动、停止、重启所有进程
+          
+          ### 📦 安装说明 / Installation
+          1. 下载适合您系统的安装包 / Download the appropriate package for your system
+          2. 解压文件 / Extract the archive
+          3. 确保已安装 PM2 / Ensure PM2 is installed: `npm install -g pm2`
+          4. 运行应用程序 / Run the application
+          
+          ### 🖥️ 支持的平台 / Supported Platforms
+          - Windows (x64, ARM64)
+          - macOS (Intel, Apple Silicon)
+          - Linux (x64, ARM64)
+          
+          ### 📋 系统要求 / Requirements
+          - PM2 (npm install -g pm2)
+          - Node.js (for PM2)
+          
+          ### 🐛 问题反馈 / Bug Reports
+          如有问题请在 [Issues](https://github.com/your-username/pm2-manager-wails3/issues) 中反馈
+          
+          ---
+          
+          **完整更新日志请查看 [CHANGELOG.md](CHANGELOG.md)**
+
+  build-and-upload:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            extension: .exe
+            name: windows-amd64
+            archive_cmd: '7z a pm2-manager-${{ matrix.name }}.zip pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-windows-amd64.zip
+          - os: windows-latest
+            goos: windows
+            goarch: arm64
+            extension: .exe
+            name: windows-arm64
+            archive_cmd: '7z a pm2-manager-${{ matrix.name }}.zip pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-windows-arm64.zip
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            extension: ""
+            name: macos-amd64
+            archive_cmd: 'tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-macos-amd64.tar.gz
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            extension: ""
+            name: macos-arm64
+            archive_cmd: 'tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-macos-arm64.tar.gz
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            extension: ""
+            name: linux-amd64
+            archive_cmd: 'tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-linux-amd64.tar.gz
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            extension: ""
+            name: linux-arm64
+            archive_cmd: 'tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/'
+            asset_name: pm2-manager-linux-arm64.tar.gz
+
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+    - name: Build application
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 1
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          go build -ldflags="-H windowsgui -s -w" -o pm2-manager${{ matrix.extension }} .
+        else
+          go build -ldflags="-s -w" -o pm2-manager${{ matrix.extension }} .
+        fi
+      shell: bash
+
+    - name: Create package
+      run: |
+        mkdir -p pm2-manager-${{ matrix.name }}
+        cp pm2-manager${{ matrix.extension }} pm2-manager-${{ matrix.name }}/
+        cp README.md pm2-manager-${{ matrix.name }}/
+        cp README_zh.md pm2-manager-${{ matrix.name }}/
+        
+        # Create installation instructions
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cat > pm2-manager-${{ matrix.name }}/README_INSTALL.txt << 'EOF'
+        PM2 Manager - Installation Instructions
+        ======================================
+        
+        1. Ensure PM2 is installed:
+           npm install -g pm2
+        
+        2. Run pm2-manager.exe to start the application
+        
+        3. If you encounter any issues, please check:
+           - PM2 is properly installed and accessible
+           - Node.js is installed for PM2 functionality
+        
+        For more information, see README.md
+        EOF
+        else
+          cat > pm2-manager-${{ matrix.name }}/install.sh << 'EOF'
+        #!/bin/bash
+        echo "PM2 Manager - Installation"
+        echo "=========================="
+        echo ""
+        echo "1. Ensuring PM2 is installed..."
+        if ! command -v pm2 &> /dev/null; then
+            echo "PM2 not found. Please install it first:"
+            echo "npm install -g pm2"
+            exit 1
+        fi
+        echo "PM2 is installed ✓"
+        echo ""
+        echo "2. Making pm2-manager executable..."
+        chmod +x pm2-manager
+        echo "Done ✓"
+        echo ""
+        echo "3. You can now run: ./pm2-manager"
+        EOF
+          chmod +x pm2-manager-${{ matrix.name }}/install.sh
+          chmod +x pm2-manager-${{ matrix.name }}/pm2-manager
+        fi
+      shell: bash
+
+    - name: Create archive
+      run: |
+        ${{ matrix.archive_cmd }}
+      shell: bash
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./pm2-manager-${{ matrix.name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
+        asset_name: ${{ matrix.asset_name }}
+        asset_content_type: ${{ matrix.os == 'windows-latest' && 'application/zip' || 'application/gzip' }}

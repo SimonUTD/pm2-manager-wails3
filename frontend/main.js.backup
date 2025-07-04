@@ -1,0 +1,224 @@
+import {PM2Service} from "./bindings/changeme";
+
+let processes = [];
+let metrics = {};
+
+// Load initial data when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    refreshData();
+    // Auto-refresh every 5 seconds
+    setInterval(refreshData, 5000);
+});
+
+// Refresh all data
+window.refreshData = async () => {
+    try {
+        await Promise.all([
+            loadMetrics(),
+            loadProcesses()
+        ]);
+    } catch (error) {
+        console.error('Error refreshing data:', error);
+        showError('刷新数据失败: ' + error.message);
+    }
+};
+
+// Load metrics
+async function loadMetrics() {
+    try {
+        metrics = await PM2Service.GetMetrics();
+        updateMetricsDisplay();
+    } catch (error) {
+        console.error('Error loading metrics:', error);
+        throw error;
+    }
+}
+
+// Load processes
+async function loadProcesses() {
+    try {
+        processes = await PM2Service.ListProcesses();
+        updateProcessesDisplay();
+    } catch (error) {
+        console.error('Error loading processes:', error);
+        throw error;
+    }
+}
+
+// Update metrics display
+function updateMetricsDisplay() {
+    document.getElementById('total-processes').textContent = metrics.totalProcesses || 0;
+    document.getElementById('running-processes').textContent = metrics.running || 0;
+    document.getElementById('errored-processes').textContent = metrics.errored || 0;
+    document.getElementById('stopped-processes').textContent = metrics.stopped || 0;
+}
+
+// Update processes display
+function updateProcessesDisplay() {
+    const container = document.getElementById('processes-list');
+    
+    if (!processes || processes.length === 0) {
+        container.innerHTML = '<tr><td colspan="7" class="loading">未找到进程</td></tr>';
+        return;
+    }
+    
+    container.innerHTML = processes.map(process => `
+        <tr class="process-row">
+            <td>
+                <div class="process-name">${process.name}</div>
+                <div class="process-id">ID: ${process.id}</div>
+            </td>
+            <td><span class="status ${process.status.toLowerCase()}">${getStatusText(process.status)}</span></td>
+            <td>${process.cpu}%</td>
+            <td>${formatMemory(process.memory)}</td>
+            <td>${process.startedAt}</td>
+            <td>${process.runtime}</td>
+            <td class="actions">
+                ${process.status === 'online' ? 
+                    `<button class="btn danger" onclick="stopProcess(${process.id})">停止</button>
+                     <button class="btn" onclick="restartProcess(${process.id})">重启</button>` :
+                    `<button class="btn success" onclick="startProcess(${process.id})">启动</button>`
+                }
+                <button class="btn" onclick="viewLogs(${process.id}, '${process.name}')">日志</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Get Chinese status text
+function getStatusText(status) {
+    const statusMap = {
+        'online': '运行中',
+        'stopped': '已停止',
+        'errored': '异常',
+        'stopping': '停止中',
+        'launching': '启动中'
+    };
+    return statusMap[status] || status;
+}
+
+// Process actions
+window.startProcess = async (id) => {
+    try {
+        const result = await PM2Service.StartProcess(id);
+        if (result.success) {
+            showSuccess(result.message);
+            await refreshData();
+        } else {
+            showError(result.message);
+        }
+    } catch (error) {
+        showError('启动进程失败: ' + error.message);
+    }
+};
+
+window.stopProcess = async (id) => {
+    try {
+        const result = await PM2Service.StopProcess(id);
+        if (result.success) {
+            showSuccess(result.message);
+            await refreshData();
+        } else {
+            showError(result.message);
+        }
+    } catch (error) {
+        showError('停止进程失败: ' + error.message);
+    }
+};
+
+window.restartProcess = async (id) => {
+    try {
+        const result = await PM2Service.RestartProcess(id);
+        if (result.success) {
+            showSuccess(result.message);
+            await refreshData();
+        } else {
+            showError(result.message);
+        }
+    } catch (error) {
+        showError('重启进程失败: ' + error.message);
+    }
+};
+
+window.viewLogs = async (id, name) => {
+    try {
+        const modal = document.getElementById('logModal');
+        const title = document.getElementById('logModalTitle');
+        const content = document.getElementById('logsContent');
+        
+        title.textContent = `${name} (ID: ${id}) - 进程日志`;
+        content.innerHTML = '<div>加载日志中...</div>';
+        modal.classList.add('show');
+        
+        const logs = await PM2Service.GetLogs(id);
+        
+        if (logs.stdout && logs.stdout.length > 0) {
+            content.innerHTML = logs.stdout
+                .filter(line => line.trim() !== '')
+                .map(line => `<div class="log-line">${escapeHtml(line)}</div>`)
+                .join('');
+        } else {
+            content.innerHTML = '<div class="log-line">暂无日志数据</div>';
+        }
+        
+        // Scroll to bottom
+        content.scrollTop = content.scrollHeight;
+    } catch (error) {
+        showError('获取日志失败: ' + error.message);
+        closeLogs();
+    }
+};
+
+window.closeLogs = () => {
+    const modal = document.getElementById('logModal');
+    modal.classList.remove('show');
+};
+
+// Close modal when clicking outside
+document.getElementById('logModal').addEventListener('click', (e) => {
+    if (e.target.id === 'logModal') {
+        closeLogs();
+    }
+});
+
+// Utility functions
+function formatMemory(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showSuccess(message) {
+    showNotification(message, 'success');
+}
+
+function showError(message) {
+    showNotification(message, 'error');
+}
+
+function showNotification(message, type) {
+    // Remove existing notifications
+    const existing = document.querySelectorAll('.notification');
+    existing.forEach(el => el.remove());
+    
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // Auto remove after 3 seconds for success, 5 seconds for error
+    const timeout = type === 'success' ? 3000 : 5000;
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => notification.remove(), 300);
+    }, timeout);
+}

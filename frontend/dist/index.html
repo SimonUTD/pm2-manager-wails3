@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>PM2 进程管理器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html, body {
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            font-size: 14px;
+        }
+        
+        .app-container {
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-content h1 {
+            color: #1f2937;
+            margin-bottom: 5px;
+            font-size: 24px;
+        }
+
+        .header-content p {
+            color: #6b7280;
+        }
+
+        .pm2-version {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .pm2-version.installed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .pm2-version.not-installed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+        
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .metric-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #3b82f6;
+            margin-bottom: 5px;
+        }
+        
+        .metric-card .label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .processes {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .processes-header-bar {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e5e7eb;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .processes-header-bar h2 {
+            color: #1f2937;
+            margin: 0;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .bulk-actions {
+            display: flex;
+            gap: 8px;
+            margin-right: 15px;
+        }
+        
+        .process-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .process-header {
+            background: #f9fafb;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .process-header th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .process-table tbody tr {
+            border-bottom: 1px solid #f3f4f6;
+        }
+        
+        .process-table tbody tr:hover {
+            background: #f9fafb;
+        }
+        
+        .process-table td {
+            padding: 12px;
+            vertical-align: middle;
+        }
+        
+        .process-name {
+            font-weight: 500;
+            color: #1f2937;
+        }
+        
+        .process-id {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+
+        .process-user {
+            font-size: 11px;
+            color: #9ca3af;
+            margin-top: 2px;
+        }
+
+        .process-command {
+            font-size: 11px;
+            color: #6b7280;
+            margin-top: 2px;
+            font-family: monospace;
+            background: #f9fafb;
+            padding: 2px 4px;
+            border-radius: 2px;
+        }
+        
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status.online {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status.stopped {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .status.error {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn.primary {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .btn.primary:hover {
+            background: #2563eb;
+        }
+        
+        .btn.success {
+            background: #10b981;
+            color: white;
+        }
+        
+        .btn.success:hover {
+            background: #059669;
+        }
+        
+        .btn.danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn.danger:hover {
+            background: #dc2626;
+        }
+        
+        .btn.secondary {
+            background: #6b7280;
+            color: white;
+        }
+        
+        .btn.secondary:hover {
+            background: #4b5563;
+        }
+        
+        .btn.outline {
+            background: white;
+            color: #6b7280;
+            border: 1px solid #d1d5db;
+        }
+        
+        .btn.outline:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 40px;
+            color: #ef4444;
+        }
+        
+        .processes-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        
+        .processes-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .processes-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        
+        .processes-container::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        
+        .processes-container::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+        
+        /* 日志模态框 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            width: 90vw;
+            max-width: 1000px;
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        
+        .modal-header h3 {
+            color: #1f2937;
+            margin: 0;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6b7280;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .close-btn:hover {
+            color: #374151;
+        }
+        
+        .modal-body {
+            padding: 0;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .logs-container {
+            height: 100%;
+            overflow-y: auto;
+            padding: 20px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            background: #1f2937;
+            color: #f9fafb;
+        }
+        
+        .logs-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .logs-container::-webkit-scrollbar-track {
+            background: #374151;
+        }
+        
+        .logs-container::-webkit-scrollbar-thumb {
+            background: #6b7280;
+            border-radius: 4px;
+        }
+        
+        .log-line {
+            margin-bottom: 2px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .log-line.error {
+            color: #fca5a5;
+        }
+        
+        .log-line.warn {
+            color: #fcd34d;
+        }
+        
+        .log-line.info {
+            color: #93c5fd;
+        }
+        
+        /* 选择框样式 */
+        .process-checkbox {
+            margin-right: 8px;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .processes-header-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .header-actions {
+                justify-content: space-between;
+            }
+            
+            .bulk-actions {
+                margin-right: 0;
+                justify-content: center;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .main-content {
+                padding: 10px;
+            }
+            
+            .header {
+                padding: 15px;
+            }
+            
+            .bulk-actions {
+                flex-direction: column;
+                gap: 5px;
+            }
+        }
+    </style>
+  <script type="module" crossorigin src="/assets/index-DY1ZLSod.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <div class="header">
+            <div class="header-content">
+                <h1>PM2 进程管理器</h1>
+                <p>通过此桌面应用管理您的 PM2 进程</p>
+            </div>
+            <div id="pm2-version" class="pm2-version">检查中...</div>
+        </div>
+        
+        <div class="main-content">
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="value" id="total-processes">0</div>
+                    <div class="label">总进程数</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value" id="running-processes">0</div>
+                    <div class="label">运行中</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value" id="errored-processes">0</div>
+                    <div class="label">异常</div>
+                </div>
+                <div class="metric-card">
+                    <div class="value" id="stopped-processes">0</div>
+                    <div class="label">已停止</div>
+                </div>
+            </div>
+            
+            <div class="processes">
+                <div class="processes-header-bar">
+                    <h2>进程列表</h2>
+                    <div class="header-actions">
+                        <div class="bulk-actions">
+                            <button class="btn primary" onclick="showAddProcessDialog()">添加进程</button>
+                            <button class="btn success" onclick="startAllProcesses()">全部启动</button>
+                            <button class="btn danger" onclick="stopAllProcesses()">全部停止</button>
+                            <button class="btn secondary" onclick="restartAllProcesses()">全部重启</button>
+                        </div>
+                        <button class="btn outline" onclick="refreshData()">刷新</button>
+                    </div>
+                </div>
+                
+                <div class="processes-container">
+                    <table class="process-table">
+                        <thead class="process-header">
+                            <tr>
+                                <th>
+                                    <input type="checkbox" id="select-all" onchange="toggleSelectAll()" class="process-checkbox"/>
+                                </th>
+                                <th>进程名称</th>
+                                <th>PID</th>
+                                <th>状态</th>
+                                <th>CPU</th>
+                                <th>内存</th>
+                                <th>启动时间</th>
+                                <th>运行时长</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="processes-list">
+                            <tr>
+                                <td colspan="7" class="loading">加载进程中...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div id="log-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">进程日志</h3>
+                <div class="modal-actions">
+                    <button class="btn outline" onclick="copyLogsToClipboard()">复制到剪贴板</button>
+                    <button class="btn secondary" onclick="exportLogsToFile()">导出到文件</button>
+                    <button class="close-btn" onclick="closeLogModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="logs-container" class="logs-container">
+                    <div class="loading">加载日志中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
