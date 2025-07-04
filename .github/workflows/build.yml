@@ -56,7 +56,9 @@ jobs:
 
     - name: Configure npm for Apple Silicon (ARM64)
       if: matrix.os == 'macos-latest'
-      run: npm config set arch arm64
+      run: |
+        npm config set target_arch arm64
+        npm config set target_platform darwin
 
     - name: Build Wails project (macOS)
       if: matrix.os == 'macos-latest'
