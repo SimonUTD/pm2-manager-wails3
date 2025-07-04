@@ -54,13 +54,13 @@ jobs:
     - name: Check dependencies
       run: wails3 doctor
 
-    - name: Build Wails project
-      run: |
-        if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-          wails3 task ${{ matrix.wails_os }}:package:universal
-        else
-          wails3 task ${{ matrix.wails_os }}:package
-        fi
+    - name: Build Wails project (macOS)
+      if: matrix.os == 'macos-latest'
+      run: wails3 task ${{ matrix.wails_os }}:package:universal
+
+    - name: Build Wails project (Windows)
+      if: matrix.os == 'windows-latest'
+      run: wails3 task ${{ matrix.wails_os }}:package
 
     - name: Create DMG for macOS
       if: matrix.os == 'macos-latest'
