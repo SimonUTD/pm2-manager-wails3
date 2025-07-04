@@ -12,25 +12,25 @@ import (
 )
 
 // runPM2Command 是一个核心辅助函数，用于通过用户的 shell 执行任何 pm2 命令。
-// 它现在是跨平台的，会自动检测操作系统并使用正确的 shell。
+// 它现在是跨平台的，并且能处理 nvm 等 Node.js 版本管理器导致的环境变量问题。
 func runPM2Command(args ...string) ([]byte, error) {
 	var cmd *exec.Cmd
 
 	if runtime.GOOS == "windows" {
 		// Windows 系统: 使用 "cmd /C pm2 ..."
-		// pm2 在 Windows 上通常是 pm2.cmd，'cmd /C' 会处理路径和执行。
 		fullArgs := append([]string{"/C", "pm2"}, args...)
 		cmd = exec.Command("cmd", fullArgs...)
 	} else {
-		// macOS & Linux 系统: 使用 "sh -l -c 'pm2 ...'"
-		// -l (login) 标志会使 shell 加载用户的配置文件（如 .zshrc, .bash_profile），
-		// 这对于找到像 nvm 或 npm 全局安装的 pm2 至关重要。
-		fullCommand := "pm2"
+		// macOS & Linux 系统:
+		// 1. 使用 'sh -l' 启动一个登录 shell。
+		// 2. 检查并加载 nvm.sh (如果存在)，这会设置正确的 node 路径。
+		// 3. 执行 pm2 命令。
+		// 这是解决 "env: node: No such file or directory" 问题的关键。
+		command := "if [ -s \"$HOME/.nvm/nvm.sh\" ]; then . \"$HOME/.nvm/nvm.sh\"; fi; pm2"
 		for _, arg := range args {
-			// 在 Unix-like 系统上，为参数加上引号是更安全的做法。
-			fullCommand += " " + strconv.Quote(arg)
+			command += " " + strconv.Quote(arg)
 		}
-		cmd = exec.Command("sh", "-l", "-c", fullCommand)
+		cmd = exec.Command("sh", "-l", "-c", command)
 	}
 
 	// 使用 CombinedOutput() 来执行命令并捕获其标准输出和标准错误的组合结果。
@@ -229,14 +229,13 @@ func (p *PM2Service) GetMetrics() (*MetricsData, error) {
 
 // GetPM2Version retrieves PM2 version information
 func (p *PM2Service) GetPM2Version() (*PM2VersionInfo, error) {
-	// 跨平台检查 PM2 是否存在
 	var checkCmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// Windows: 使用 'where' 命令
 		checkCmd = exec.Command("cmd", "/C", "where pm2")
 	} else {
-		// macOS & Linux: 使用 'command -v' 在登录 shell 中运行
-		checkCmd = exec.Command("sh", "-l", "-c", "command -v pm2")
+		// 在登录 shell 中，先加载 nvm，再检查 pm2
+		command := "if [ -s \"$HOME/.nvm/nvm.sh\" ]; then . \"$HOME/.nvm/nvm.sh\"; fi; command -v pm2"
+		checkCmd = exec.Command("sh", "-l", "-c", command)
 	}
 
 	if err := checkCmd.Run(); err != nil {
@@ -247,7 +246,6 @@ func (p *PM2Service) GetPM2Version() (*PM2VersionInfo, error) {
 		}, nil
 	}
 
-	// 如果存在，再获取版本号
 	output, err := runPM2Command("--version")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PM2 version: %v. Output: %s", err, string(output))
