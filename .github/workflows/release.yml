@@ -17,7 +17,7 @@ jobs:
             platform: 'windows/amd64'
             asset_name_suffix: 'windows-amd64.exe'
             # 这是根据你 wails.json 确认的正确路径
-            asset_path: 'build/bin/pm2-manager.exe'
+            asset_path: 'bin/pm2-manager.exe'
             wails_os: 'windows'
             
           # macOS 配置
@@ -45,6 +45,13 @@ jobs:
         node-version: '18'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
+    
+    - name: Fix esbuild
+      run: |
+        cd frontend
+        npm cache clean --force
+        rm -rf node_modules package-lock.json
+        npm install
 
     - name: Tidy Go modules
       run: go mod tidy
