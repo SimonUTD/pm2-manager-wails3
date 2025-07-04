@@ -1,84 +1,36 @@
 name: Release
 
+# 触发条件：仅在创建 v 开头的标签时运行
 on:
   push:
     tags:
       - 'v*'
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: PM2 Manager ${{ github.ref }}
-        draft: false
-        prerelease: false
-        body: |
-          ## PM2 Manager Release ${{ github.ref }}
-          
-          ### 🎉 新功能 / New Features
-          - 🚀 进程管理：添加、编辑、删除和控制 PM2 进程
-          - 📊 实时监控：实时进程状态、CPU、内存使用情况
-          - 🔧 高级配置：设置启动命令、工作目录、自启动选项
-          - 📈 系统指标：总进程数、运行中、错误和停止进程的概览
-          - 🔍 详细信息：查看 PID、用户、完整命令、脚本路径
-          - 📝 进程日志：实时日志查看和导出功能
-          - ⚙️ PM2 版本检测：自动检测 PM2 安装状态和版本显示
-          - 🎯 批量操作：一键启动、停止、重启所有进程
-          
-          ### 📦 安装说明 / Installation
-          1. 下载适合您系统的安装包 / Download the appropriate package for your system
-          2. 解压文件 / Extract the archive
-          3. 确保已安装 PM2 / Ensure PM2 is installed: `npm install -g pm2`
-          4. 运行应用程序 / Run the application
-          
-          ### 🖥️ 支持的平台 / Supported Platforms
-          - Windows (x64, ARM64)
-          - macOS (Intel, Apple Silicon)
-          - Linux (x64, ARM64)
-          
-          ### 📋 系统要求 / Requirements
-          - PM2 (npm install -g pm2)
-          - Node.js (for PM2)
-          
-          ### 🐛 问题反馈 / Bug Reports
-          如有问题请在 [Issues](https://github.com/your-username/pm2-manager-wails3/issues) 中反馈
-          
-          ---
-          
-          **完整更新日志请查看 [CHANGELOG.md](CHANGELOG.md)**
-
-  build-and-upload:
-    needs: create-release
+  # 第一步：构建所有平台的应用
+  build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            name: windows-amd64
-            asset_name: pm2-manager-windows-amd64.zip
+            asset_name: pm2-manager-windows-amd64.exe
+            asset_path: build/bin/pm2-manager.exe
+            build_command: wails3 task package
+            
           - os: macos-latest
-            name: macos-universal
-            asset_name: pm2-manager-macos-universal.tar.gz
-          - os: ubuntu-latest
-            name: linux-amd64
-            asset_name: pm2-manager-linux-amd64.tar.gz
+            asset_name: pm2-manager-macos-universal.dmg
+            asset_path: build/bin/pm2-manager.dmg
+            build_command: wails3 task package:universal
 
     runs-on: ${{ matrix.os }}
-
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: '1.23'
 
@@ -89,116 +41,57 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install Wails3
-      run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-
-    - name: Install Linux dependencies
-      if: matrix.os == 'ubuntu-latest'
+    - name: Install dependencies and build
       run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+        go mod tidy
+        go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+        ${{ matrix.build_command }}
 
-    - name: Install macOS dependencies
+    - name: Create DMG for macOS
       if: matrix.os == 'macos-latest'
       run: |
-        xcode-select --install || echo "Xcode command line tools already installed"
-
-    - name: Check dependencies
-      run: wails3 doctor
-
-    - name: Build application
-      run: wails3 build
-
-    - name: Package application
-      run: wails3 package
-
-    - name: Create distribution package
-      run: |
-        mkdir -p dist/pm2-manager-${{ matrix.name }}
-
-        # Copy built application
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp bin/*.exe dist/pm2-manager-${{ matrix.name }}/
-        elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-          cp -r bin/*.app dist/pm2-manager-${{ matrix.name }}/ || cp bin/* dist/pm2-manager-${{ matrix.name }}/
-        else
-          cp bin/* dist/pm2-manager-${{ matrix.name }}/
-        fi
-
-        # Copy documentation
-        cp README.md dist/pm2-manager-${{ matrix.name }}/
-        cp README_zh.md dist/pm2-manager-${{ matrix.name }}/
-        cp CHANGELOG.md dist/pm2-manager-${{ matrix.name }}/
-
-        # Create installation instructions
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cat > dist/pm2-manager-${{ matrix.name }}/INSTALL.txt << 'EOF'
-        PM2 Manager - Installation Instructions
-        ======================================
-
-        1. Prerequisites:
-           - Ensure Node.js is installed
-           - Install PM2 globally: npm install -g pm2
-
-        2. Installation:
-           - Extract this archive to your desired location
-           - Double-click the .exe file to run the application
-
-        3. Usage:
-           - The application will automatically detect your PM2 installation
-           - If PM2 is not found, install it using: npm install -g pm2
-
-        For more information, see README.md
-        EOF
-        else
-          cat > dist/pm2-manager-${{ matrix.name }}/install.sh << 'EOF'
-        #!/bin/bash
-        echo "PM2 Manager Installation"
-        echo "======================="
-        echo ""
-
-        # Check for PM2
-        if ! command -v pm2 &> /dev/null; then
-            echo "⚠ PM2 not found. Installing PM2..."
-            if command -v npm &> /dev/null; then
-                npm install -g pm2
-                echo "✓ PM2 installed successfully"
-            else
-                echo "✗ npm not found. Please install Node.js and npm first"
-                echo "  Then run: npm install -g pm2"
-                exit 1
-            fi
-        else
-            echo "✓ PM2 is already installed"
-        fi
-
-        # Make executable
-        chmod +x pm2-manager* 2>/dev/null || chmod +x *.app/Contents/MacOS/* 2>/dev/null || true
-        echo "✓ Made application executable"
-
-        echo ""
-        echo "Installation complete! Run the application to start PM2 Manager"
-        EOF
-          chmod +x dist/pm2-manager-${{ matrix.name }}/install.sh
-        fi
-      shell: bash
-
-    - name: Create archive
-      run: |
-        cd dist
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          powershell -command "Compress-Archive -Path 'pm2-manager-${{ matrix.name }}' -DestinationPath 'pm2-manager-${{ matrix.name }}.zip'"
-        else
-          tar -czf pm2-manager-${{ matrix.name }}.tar.gz pm2-manager-${{ matrix.name }}/
-        fi
-      shell: bash
-
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        brew install create-dmg
+        create-dmg \
+          --volname "PM2 Manager" \
+          --app-drop-link 600 185 \
+          "build/bin/pm2-manager.dmg" \
+          "build/bin/pm2-manager.app"
+          
+    # 将构建好的文件作为 artifact 上传，供下一个 Job 使用
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
       with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./dist/pm2-manager-${{ matrix.name }}.${{ matrix.os == 'windows-latest' && 'zip' || 'tar.gz' }}
-        asset_name: ${{ matrix.asset_name }}
-        asset_content_type: ${{ matrix.os == 'windows-latest' && 'application/zip' || 'application/gzip' }}
+        name: ${{ matrix.asset_name }}
+        path: ${{ matrix.asset_path }}
+
+  # 第二步：创建 Release 并上传所有文件
+  release:
+    # 等待 build Job 全部成功后运行
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 必须，用于创建 Release
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      # 下载到 artifacts 文件夹
+      with:
+        path: artifacts
+
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      with:
+        # 从触发的 tag (例如 'v1.0.0') 中获取版本号
+        tag_name: ${{ github.ref_name }}
+        # 将 tag 作为 Release 的标题
+        name: Release ${{ github.ref_name }}
+        # 设置为 false，表示是正式版，不是预发布
+        prerelease: false
+        # 设置为 false，表示直接发布，不是草稿
+        draft: false
+        # 上传 artifacts 目录下所有文件夹里的所有文件
+        files: artifacts/**/*

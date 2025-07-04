@@ -11,17 +11,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: 'DMG-${{ github.ref_name }}-Linux-amd64'
-            platform: 'linux/amd64'
-            os: 'ubuntu-latest'
-            wails_os: 'linux'
-          - name: 'DMG-${{ github.ref_name }}-Windows-amd64'
+          # Windows 配置
+          - os: 'windows-latest'
             platform: 'windows/amd64'
-            os: 'windows-latest'
+            asset_name_suffix: 'windows-amd64.exe'
+            # 这是根据你 wails.json 确认的正确路径
+            asset_path: 'build/bin/pm2-manager.exe'
             wails_os: 'windows'
-          - name: 'DMG-${{ github.ref_name }}-macOS'
+            
+          # macOS 配置
+          - os: 'macos-latest'
             platform: 'darwin/universal'
-            os: 'macos-latest'
+            asset_name_suffix: 'macos-universal.dmg'
+            # 这是打包成 dmg 后的最终路径
+            asset_path: 'build/bin/pm2-manager.dmg'
             wails_os: 'darwin'
     
     runs-on: ${{ matrix.os }}
@@ -42,12 +45,6 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install Linux dependencies
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
-
     - name: Tidy Go modules
       run: go mod tidy
 
@@ -57,11 +54,42 @@ jobs:
     - name: Check dependencies
       run: wails3 doctor
 
-    - name: Build Wails project (Windows, Linux)
-      if: matrix.os != 'macos-latest'
-      run: wails3 task ${{ matrix.wails_os }}:package
+    - name: Build Wails project
+      run: |
+        if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          wails3 task ${{ matrix.wails_os }}:package:universal
+        else
+          wails3 task ${{ matrix.wails_os }}:package
+        fi
 
-    - name: Build Wails project (Darwin)
+    - name: Create DMG for macOS
       if: matrix.os == 'macos-latest'
-      run: wails3 task ${{ matrix.wails_os }}:package:universal
+      run: |
+        # 安装 DMG 打包工具
+        brew install create-dmg
+        # 执行打包命令
+        create-dmg \
+          --volname "PM2 Manager" \
+          --window-pos 200 120 \
+          --window-size 800 400 \
+          --icon-size 100 \
+          --icon "pm2-manager.app" 200 190 \
+          --hide-extension "pm2-manager.app" \
+          --app-drop-link 600 185 \
+          "build/bin/pm2-manager.dmg" \
+          "build/bin/pm2-manager.app"
 
+    - name: Upload binaries to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        # 根据推送到哪个分支来命名 Release 标题
+        name: "Release ${{ github.ref_name }}"
+        # 使用固定的 'latest' 标签，每次都会更新这个 Release
+        tag_name: latest
+        # 需要上传的文件路径 (从 matrix 中获取)
+        files: ${{ matrix.asset_path }}
+        # 在 Release 中显示的资源名称 (例如: pm2-manager-windows-amd64.exe)
+        asset_name: pm2-manager-${{ matrix.asset_name_suffix }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
