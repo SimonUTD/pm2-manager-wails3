@@ -46,7 +46,18 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
     
-    - name: Fix esbuild
+    - name: Clean frontend dependencies (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cd frontend
+        npm cache clean --force
+        if (Test-Path "node_modules") { Remove-Item -Recurse -Force "node_modules" }
+        if (Test-Path "package-lock.json") { Remove-Item -Force "package-lock.json" }
+        npm install
+      shell: powershell
+
+    - name: Clean frontend dependencies (macOS)
+      if: matrix.os == 'macos-latest'
       run: |
         cd frontend
         npm cache clean --force
