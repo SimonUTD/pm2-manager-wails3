@@ -17,7 +17,7 @@ jobs:
             platform: 'windows/amd64'
             asset_name_suffix: 'windows-amd64.exe'
             # 这是根据你 wails.json 确认的正确路径
-            asset_path: 'bin/pm2-manager.exe'
+            asset_path: 'bin/pm2-manager-wails3.exe'
             wails_os: 'windows'
             
           # macOS 配置
@@ -25,7 +25,7 @@ jobs:
             platform: 'darwin/universal'
             asset_name_suffix: 'macos-universal.dmg'
             # 这是打包成 dmg 后的最终路径
-            asset_path: 'pm2-manager.dmg'
+            asset_path: 'pm2-manager-wails3.dmg'
             wails_os: 'darwin'
     
     runs-on: ${{ matrix.os }}
@@ -86,11 +86,11 @@ jobs:
       run: |
         brew install create-dmg
         mkdir -p dmg-temp
-        cp -R bin/pm2-manager.app dmg-temp/
+        cp -R bin/pm2-manager-wails3.app dmg-temp/
         create-dmg \
           --volname "PM2 Manager" \
-          "pm2-manager.dmg" \
-          "dmg-temp/pm2-manager.app"
+          "pm2-manager-wails3r.dmg" \
+          "dmg-temp/pm2-manager-wails3.app"
 
     - name: Verify build artifacts (Windows)
       if: matrix.os == 'windows-latest'

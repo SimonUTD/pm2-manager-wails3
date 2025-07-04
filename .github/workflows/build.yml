@@ -16,7 +16,7 @@ jobs:
             platform: 'windows/amd64'
             asset_name: pm2-manager-windows-amd64.exe
             # 这是根据你 wails.json 确认的正确路径
-            asset_path: 'build/bin/pm2-manager.exe'
+            asset_path: 'build/bin/pm2-manager-wails3.exe'
             wails_os: 'windows'
             
           # macOS 配置
@@ -24,7 +24,7 @@ jobs:
             platform: 'darwin/universal'
             asset_name: pm2-manager-macos-universal.dmg
             # 这是打包成 dmg 后的最终路径
-            asset_path: 'build/bin/pm2-manager.dmg'
+            asset_path: 'build/bin/pm2-manager-wails3.dmg'
             wails_os: 'darwin'
     
     runs-on: ${{ matrix.os }}
@@ -69,5 +69,5 @@ jobs:
         create-dmg \
           --volname "PM2 Manager" \
           --app-drop-link 600 185 \
-          "$GITHUB_WORKSPACE/build/bin/pm2-manager.dmg" \
-          "$GITHUB_WORKSPACE/build/bin/pm2-manager.app"
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager-wails3.dmg" \
+          "$GITHUB_WORKSPACE/build/bin/pm2-manager-wails3.app"
