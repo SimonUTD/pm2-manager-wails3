@@ -11,7 +11,7 @@ echo ================================
 echo.
 
 REM Configuration
-set APP_NAME=pm2-manager
+set APP_NAME=pm2-manager-wails3
 set VERSION=%1
 if "%VERSION%"=="" set VERSION=dev
 set BUILD_DIR=dist

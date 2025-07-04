@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-APP_NAME="pm2-manager"
+APP_NAME="pm2-manager-wails3"
 VERSION=${1:-"dev"}
 BUILD_DIR="dist"
 
